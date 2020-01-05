@@ -48,8 +48,7 @@ properties = {
 # Called by the plugin manager to get a broker
 def get_instance(mod_conf):
     logger.info("[Graphite] Get a graphite data module for plugin %s", mod_conf.get_name())
-    instance = Graphite_broker(mod_conf)
-    return instance
+    return Graphite_broker(mod_conf)
 
 
 # Class for the Graphite Broker
@@ -129,9 +128,8 @@ class Graphite_broker(BaseModule):
         try:
             self.con = socket()
             self.con.connect((self.host, self.port))
-        except IOError as e:
-            logger.error("[Graphite] Graphite Carbon instance connexion failed"
-                         " IOError: %s", str(e))
+        except IOError as exp:
+            logger.error("[Graphite] Graphite Carbon instance connexion failed IOError: %s", str(exp))
             # do not raise an exception - logging is enough ...
             self.con = None
 
@@ -166,7 +164,7 @@ class Graphite_broker(BaseModule):
                     logger.debug("[Graphite] sent all cached metrics")
                     break
                 except Exception as exp:
-                    logger.error("[Graphite] exception: %s", str(exp))
+                    logger.error("[Graphite] cache flushing exception: %s", str(exp))
             logger.info("[Graphite] time to flush %d cached metrics packet(s) (%2.4f)",
                         commit_count, time.time() - now)
 
@@ -200,7 +198,7 @@ class Graphite_broker(BaseModule):
             # get metric value and its thresholds values if they exist
             name_value = {name: e.value}
             # bailout if no value
-            if name_value[name] == '':
+            if not name_value[name]:
                 continue
 
             # Get or ignore extra values depending upon module configuration
