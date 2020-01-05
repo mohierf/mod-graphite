@@ -28,8 +28,8 @@ to brok information of the service/host perfdatas into the Graphite
 backend. http://graphite.wikidot.com/start
 """
 
-from re import compile
-from time import time
+import re
+import time
 
 from socket import socket
 from collections import deque
@@ -47,7 +47,7 @@ properties = {
 
 # Called by the plugin manager to get a broker
 def get_instance(mod_conf):
-    logger.info("[Graphite] Get a graphite data module for plugin %s" % mod_conf.get_name())
+    logger.info("[Graphite] Get a graphite data module for plugin %s", mod_conf.get_name())
     instance = Graphite_broker(mod_conf)
     return instance
 
@@ -62,13 +62,13 @@ class Graphite_broker(BaseModule):
         self.services_cache = {}
 
         # Separate perfdata multiple values
-        self.multival = compile(r'_(\d+)$')
+        self.multival = re.compile(r'_(\d+)$')
 
         # Specific filter to allow metrics to include '.' for Graphite
-        self.illegal_char_metric = compile(r'[^a-zA-Z0-9_.\-]')
+        self.illegal_char_metric = re.compile(r'[^a-zA-Z0-9_.\-]')
 
         # Specific filter for host and services names for Graphite
-        self.illegal_char_hostname = compile(r'[^a-zA-Z0-9_\-]')
+        self.illegal_char_hostname = re.compile(r'[^a-zA-Z0-9_\-]')
 
         self.host = getattr(modconf, 'host', 'localhost')
         self.port = int(getattr(modconf, 'port', '2003'))
@@ -99,17 +99,16 @@ class Graphite_broker(BaseModule):
         # optional perfdatas to be filtered
         self.filtered_metrics = {}
         filters = getattr(modconf, 'filter', [])
-        if isinstance(filters, str) or isinstance(filters, unicode):
+        if isinstance(filters, (str, unicode)):
             filters = [filters]
-        for filter in filters:
+        for a_filter in filters:
             try:
-                filtered_service, filtered_metric = filter.split(':')
+                filtered_service, filtered_metric = a_filter.split(':')
                 self.filtered_metrics[filtered_service] = []
                 if filtered_metric:
                     self.filtered_metrics[filtered_service] = filtered_metric.split(',')
-            except:
-                logger.warning("[Graphite] Configuration - ignoring badly declared filtered metric: %s", filter)
-                pass
+            except Exception:
+                logger.warning("[Graphite] Configuration - ignoring badly declared filtered metric: %s", a_filter)
 
         for service in self.filtered_metrics:
             logger.info("[Graphite] Configuration - Filtered metrics: %s - %s", service, self.filtered_metrics[service])
@@ -138,6 +137,9 @@ class Graphite_broker(BaseModule):
 
         return self.con
 
+    def do_loop_turn(self):
+        return True
+
     # Sending data to Carbon. In case of failure, try to reconnect and send again.
     def send_packet(self, packet):
         if not self.con:
@@ -153,7 +155,7 @@ class Graphite_broker(BaseModule):
         if self.cache:
             logger.info("[Graphite] %d cached metrics packet(s) to send to Graphite", len(self.cache))
             commit_count = 0
-            now = time()
+            now = time.time()
             while True:
                 try:
                     self.con.sendall(self.cache.popleft())
@@ -165,7 +167,8 @@ class Graphite_broker(BaseModule):
                     break
                 except Exception as exp:
                     logger.error("[Graphite] exception: %s", str(exp))
-            logger.info("[Graphite] time to flush %d cached metrics packet(s) (%2.4f)", commit_count, time() - now)
+            logger.info("[Graphite] time to flush %d cached metrics packet(s) (%2.4f)",
+                        commit_count, time.time() - now)
 
         try:
             self.con.sendall(packet)
@@ -185,7 +188,7 @@ class Graphite_broker(BaseModule):
         metrics = PerfDatas(perf_data)
 
         for e in metrics:
-            logger.debug("[Graphite] service: %s, metric: %s", e.name)
+            logger.debug("[Graphite] service: %s, metric: %s", service, e.name)
             if service in self.filtered_metrics:
                 if e.name in self.filtered_metrics[service]:
                     logger.debug("[Graphite] Ignore metric '%s' for filtered service: %s", e.name, service)
@@ -222,10 +225,10 @@ class Graphite_broker(BaseModule):
     def manage_initial_service_status_brok(self, b):
         host_name = b.data['host_name']
         service_description = b.data['service_description']
-        service_id = host_name+"/"+service_description
+        service_id = host_name + "/" + service_description
         logger.info("[Graphite] got initial service status: %s", service_id)
 
-        if not host_name in self.hosts_cache:
+        if host_name not in self.hosts_cache:
             logger.error("[Graphite] initial service status, host is unknown: %s.", service_id)
             return
 
@@ -252,7 +255,7 @@ class Graphite_broker(BaseModule):
     def manage_service_check_result_brok(self, b):
         host_name = b.data['host_name']
         service_description = b.data['service_description']
-        service_id = host_name+"/"+service_description
+        service_id = host_name + "/" + service_description
         logger.debug("[Graphite] service check result: %s", service_id)
 
         # If host and service initial status brokes have not been received, ignore ...
@@ -264,7 +267,7 @@ class Graphite_broker(BaseModule):
             return
 
         if service_description in self.filtered_metrics:
-            if len(self.filtered_metrics[service_description]) == 0:
+            if not self.filtered_metrics[service_description]:
                 logger.debug("[Graphite] Ignore service '%s' metrics", service_description)
                 return
 
@@ -272,7 +275,7 @@ class Graphite_broker(BaseModule):
         couples = self.get_metric_and_value(service_description, b.data['perf_data'])
 
         # If no values, we can exit now
-        if len(couples) == 0:
+        if not couples:
             logger.debug("[Graphite] no metrics to send ...")
             return
 
@@ -293,7 +296,7 @@ class Graphite_broker(BaseModule):
         if self.ignore_latency_limit >= b.data['latency'] > 0:
             check_time = int(b.data['last_chk']) - int(b.data['latency'])
             logger.info("[Graphite] Ignoring latency for service %s. Latency : %s",
-                b.data['service_description'], b.data['latency'])
+                        b.data['service_description'], b.data['latency'])
         else:
             check_time = int(b.data['last_chk'])
 
@@ -326,7 +329,7 @@ class Graphite_broker(BaseModule):
         couples = self.get_metric_and_value('host_check', b.data['perf_data'])
 
         # If no values, we can exit now
-        if len(couples) == 0:
+        if not couples:
             logger.debug("[Graphite] no metrics to send ...")
             return
 
@@ -345,7 +348,7 @@ class Graphite_broker(BaseModule):
         if self.ignore_latency_limit >= b.data['latency'] > 0:
             check_time = int(b.data['last_chk']) - int(b.data['latency'])
             logger.info("[Graphite] Ignoring latency for service %s. Latency : %s",
-                b.data['service_description'], b.data['latency'])
+                        b.data['service_description'], b.data['latency'])
         else:
             check_time = int(b.data['last_chk'])
 
@@ -368,7 +371,7 @@ class Graphite_broker(BaseModule):
         self.set_proctitle(self.name)
         self.set_exit_handler()
         while not self.interrupted:
-            l = self.to_q.get()
-            for b in l:
-                b.prepare()
-                self.manage_brok(b)
+            message = self.to_q.get()
+            for brok in message:
+                brok.prepare()
+                self.manage_brok(brok)
